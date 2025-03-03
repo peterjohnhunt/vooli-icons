@@ -13,6 +13,10 @@
             height: 100vh;
             background-color: #1E90FF;
         }
+        .container {
+            display: flex;
+            align-items: center;
+        }
         .grid {
             display: grid;
             grid-template-columns: repeat(32, 20px);
@@ -29,39 +33,69 @@
         .active {
             background-color: white;
         }
-        .pixel::after {
-            content: "";
+        .frames-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin-left: 20px;
+        }
+        .frame-preview {
+            display: grid;
+            grid-template-columns: repeat(32, 5px);
+            grid-template-rows: repeat(16, 5px);
+            gap: 1px;
+            margin: 5px;
+            border: 1px solid black;
+            cursor: pointer;
+            position: relative;
+        }
+        .frame-pixel {
+            width: 5px;
+            height: 5px;
+            background-color: #87CEEB;
+        }
+        .frame-pixel.active {
+            background-color: white;
+        }
+        .delete-button {
             position: absolute;
-            width: 100%;
-            height: 100%;
-            top: 0;
-            left: 0;
-            border: 1px solid transparent;
-        }
-        button {
-            margin-top: 10px;
-            padding: 10px;
-            font-size: 16px;
-        }
-        textarea {
-            margin-top: 10px;
-            width: 80%;
-            height: 100px;
+            top: 2px;
+            right: 2px;
+            background: none;
+            border: none;
+            cursor: pointer;
             font-size: 14px;
+            color: red;
+        }
+        .buttons-container {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
         }
     </style>
 </head>
 <body>
-    <div class="grid" id="grid"></div>
-    <button onclick="exportBinary()">Export as Binary Array</button>
-    <button onclick="importBinary()">Import Binary Array</button>
-    <button onclick="resetGrid()">Reset</button>
+    <div class="container">
+        <div class="grid" id="grid"></div>
+        <div class="frames-container" id="frames-container"></div>
+    </div>
+    <div class="buttons-container">
+        <button onclick="saveFrame()">Save Frame</button>
+        <button onclick="clearFrames()">Clear Frames</button>
+        <button onclick="exportAllFrames()">Export All Frames</button>
+        <button onclick="exportBinary()">Export Current Frame</button>
+        <button onclick="importBinary()">Import Binary Array</button>
+        <button onclick="resetGrid()">Reset</button>
+    </div>
     <textarea id="output"></textarea>
     <script>
         const grid = document.getElementById("grid");
         const outputField = document.getElementById("output");
+        const framesContainer = document.getElementById("frames-container");
+        let frames = [];
         let matrix = Array(16).fill().map(() => Array(32).fill(0));
 
+        // Populate the grid with pixels
         for (let row = 0; row < 16; row++) {
             for (let col = 0; col < 32; col++) {
                 const pixel = document.createElement("div");
@@ -76,6 +110,30 @@
             }
         }
 
+        function saveFrame() {
+            frames.push(JSON.parse(JSON.stringify(matrix)));
+            updateFrames();
+        }
+
+        function clearFrames() {
+            frames = [];
+            updateFrames();
+        }
+
+        function exportAllFrames() {
+            let allFramesOutput = frames.map((frame, index) => {
+                let binaryArray = [];
+                for (let row of frame) {
+                    for (let i = 0; i < 32; i += 8) {
+                        let byte = row.slice(i, i + 8).reduce((acc, bit, idx) => acc | (bit << (7 - idx)), 0);
+                        binaryArray.push(`B${byte.toString(2).padStart(8, '0')}`);
+                    }
+                }
+                return `// Frame ${index + 1}\nconst uint8_t Frame_${index + 1}[] PROGMEM = {\n    ${binaryArray.join(",\n    ")}\n};`;
+            }).join("\n\n");
+            outputField.value = allFramesOutput;
+        }
+
         function exportBinary() {
             let binaryArray = [];
             for (let row of matrix) {
@@ -84,45 +142,41 @@
                     binaryArray.push(`B${byte.toString(2).padStart(8, '0')}`);
                 }
             }
-            let output = `const uint8_t Vooli_Icons[] PROGMEM = {
-    ${binaryArray.join(",\n    ")}
-};`;
-            outputField.value = output;
-            console.log(output);
-        }
-
-        function importBinary() {
-            let input = outputField.value.match(/B[01]{8}/g);
-            if (!input || input.length !== 64) {
-                alert("Invalid binary array format.");
-                return;
-            }
-            matrix = [];
-            for (let i = 0; i < 16; i++) {
-                let row = [];
-                for (let j = 0; j < 4; j++) {
-                    let byte = parseInt(input[i * 4 + j].substring(1), 2);
-                    for (let k = 0; k < 8; k++) {
-                        row.push((byte >> (7 - k)) & 1);
-                    }
-                }
-                matrix.push(row);
-            }
-            document.querySelectorAll(".pixel").forEach((pixel, index) => {
-                let row = Math.floor(index / 32);
-                let col = index % 32;
-                if (matrix[row][col] === 1) {
-                    pixel.classList.add("active");
-                } else {
-                    pixel.classList.remove("active");
-                }
-            });
+            outputField.value = `const uint8_t Vooli_Icons[] PROGMEM = {\n    ${binaryArray.join(",\n    ")}\n};`;
         }
 
         function resetGrid() {
             matrix = Array(16).fill().map(() => Array(32).fill(0));
             document.querySelectorAll(".pixel").forEach(pixel => pixel.classList.remove("active"));
             outputField.value = "";
+        }
+
+        function updateFrames() {
+            framesContainer.innerHTML = "";
+            frames.forEach((frame, index) => {
+                const frameDiv = document.createElement("div");
+                frameDiv.classList.add("frame-preview");
+                frameDiv.dataset.index = index;
+                frameDiv.onclick = () => loadFrame(index);
+                frame.forEach(row => {
+                    row.forEach(cell => {
+                        const pixel = document.createElement("div");
+                        pixel.classList.add("frame-pixel");
+                        if (cell === 1) pixel.classList.add("active");
+                        frameDiv.appendChild(pixel);
+                    });
+                });
+                const deleteButton = document.createElement("button");
+                deleteButton.innerHTML = "🗑";
+                deleteButton.classList.add("delete-button");
+                deleteButton.onclick = (e) => {
+                    e.stopPropagation();
+                    frames.splice(index, 1);
+                    updateFrames();
+                };
+                frameDiv.appendChild(deleteButton);
+                framesContainer.appendChild(frameDiv);
+            });
         }
     </script>
 </body>
